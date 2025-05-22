@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { transformStream } from "@crayonai/stream";
 import { DBMessage, getMessageStore } from "./messageStore";
-
+import { systemPrompt } from "./systemPrompt";
+import { tools } from "./tools";
+import { mapToolListToOpenAiTools } from "./mcpUtils";
+import { mcpClient } from "./mcpClient";
 export async function POST(req: NextRequest) {
   const { prompt, threadId, responseId } = (await req.json()) as {
     prompt: DBMessage;
@@ -17,11 +20,25 @@ export async function POST(req: NextRequest) {
 
   messageStore.addMessage(prompt);
 
-  const llmStream = await client.chat.completions.create({
+  // const llmStream = await client.chat.completions.create({
+  //   model: "c1-nightly",
+  //   messages: messageStore.getOpenAICompatibleMessageList(),
+  //   stream: true,
+  // });
+
+  const mcpToolsList = await mcpClient.listTools();
+  const openAiTools = mapToolListToOpenAiTools(mcpClient, mcpToolsList);
+  
+  const llmStream = await client.beta.chat.completions.runTools({
     model: "c1-nightly",
-    messages: messageStore.getOpenAICompatibleMessageList(),
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...messageStore.getOpenAICompatibleMessageList(),
+    ],
+    tools : openAiTools,
     stream: true,
   });
+
 
   const responseStream = transformStream(
     llmStream,
